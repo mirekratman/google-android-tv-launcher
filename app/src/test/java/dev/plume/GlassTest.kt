@@ -1,0 +1,233 @@
+package dev.plume
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class GlassTest {
+    private fun px(r: Int, g: Int, b: Int) = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+
+    @Test fun aFlatPictureStaysFlat() {
+        val flat = IntArray(12 * 8) { px(40, 120, 200) }
+        assertTrue(boxBlur(flat, 12, 8, 2).all { it == px(40, 120, 200) })
+    }
+
+    @Test fun aBrightPixelSpreadsToItsNeighboursAndDims() {
+        val w = 15
+        val h = 15
+        val pic = IntArray(w * h) { px(0, 0, 0) }
+        pic[7 * w + 7] = px(255, 255, 255)
+        val out = boxBlur(pic, w, h, 2)
+        val centre = out[7 * w + 7] and 0xFF
+        assertTrue("the centre dims", centre in 1..254)
+        assertTrue("a neighbour lights up", (out[7 * w + 8] and 0xFF) > 0)
+        assertTrue("the blur is about the same both ways", Math.abs((out[7 * w + 8] and 0xFF) - (out[8 * w + 7] and 0xFF)) <= 3)
+        assertTrue("far away stays black", (out[0] and 0xFF) == 0)
+    }
+
+    @Test fun theInputIsLeftAlone() {
+        val pic = IntArray(9 * 9) { px(it, 0, 0) }
+        val copy = pic.copyOf()
+        boxBlur(pic, 9, 9, 1)
+        assertTrue(pic.contentEquals(copy))
+    }
+
+    @Test fun theFrostIsEvenedOutAndRicher() {
+        val grey = { v: Int -> px(v, v, v) }
+        assertEquals("a bright sky comes down", grey(184), glassTone(intArrayOf(grey(255)), dark = true)[0])
+        assertEquals("a deep shadow comes up", grey(32), glassTone(intArrayOf(grey(0)), dark = true)[0])
+        assertEquals("dark sits a little lower", grey(108), glassTone(intArrayOf(grey(128)), dark = true)[0])
+        val pic = glassTone(intArrayOf(px(200, 100, 50)), dark = true)[0]
+        assertTrue("35% more saturation", (pic shr 16 and 0xFF) - (pic and 0xFF) > 150)
+        assertTrue("light mode lifts it", luma(glassTone(intArrayOf(grey(100)), dark = false)[0]) > luma(glassTone(intArrayOf(grey(100)), dark = true)[0]))
+    }
+
+    @Test fun theMeanColourIsTheAverage() {
+        assertEquals(px(100, 50, 150), meanColour(intArrayOf(px(0, 0, 100), px(200, 100, 200))))
+        assertEquals(GLASS_GREY, meanColour(IntArray(0)))
+    }
+
+    private fun luma(c: Int) = ((c shr 16 and 0xFF) * 299 + (c shr 8 and 0xFF) * 587 + (c and 0xFF) * 114) / 1000
+
+    @Test fun theTintKeepsTheWallpapersHue() {
+        val green = px(40, 160, 60)
+        val darkTint = glassHue(green, dark = true, alpha = 0x80)
+        assertEquals(0x80, darkTint ushr 24)
+        assertTrue("dark tint is charcoal", luma(darkTint) in 20..45)
+        assertTrue("and still green", (darkTint shr 8 and 0xFF) > (darkTint shr 16 and 0xFF))
+        val light = glassHue(green, dark = false, alpha = 0xFF)
+        assertTrue("light tint is near white", luma(light) > 230)
+        assertTrue("and still green", (light shr 8 and 0xFF) > (light shr 16 and 0xFF))
+    }
+
+    @Test fun tilesAndPanelsTakeTheWallpapersColour() {
+        val hue = px(40, 160, 60)
+        val look = GlassLook(GlassStyle.FROSTED, dark = true, backdrop = Backdrop.PICTURE, hue = hue)
+        assertEquals("dark tiles are a little stronger", glassHue(hue, true, GlassStyle.FROSTED.tintRest * 9 / 8), look.tile(lit = false))
+        assertEquals(glassHue(hue, false, GlassStyle.FROSTED.tintLit), look.copy(dark = false).tile(lit = true))
+        assertEquals("panels are as strong in both styles", look.wash(), look.copy(style = GlassStyle.CLEAR).wash())
+        assertEquals("off: no tint", 0, look.copy(style = null).tile(lit = true))
+    }
+
+
+    @Test fun theWallpaperThemeIsColoured() {
+        val sunset = px(120, 100, 105)
+        val look = GlassLook(GlassStyle.FROSTED, dark = true, backdrop = Backdrop.PICTURE, hue = sunset, coloured = true)
+        val wash = look.wash()
+        assertTrue("redder than the grey of Dark", (wash shr 16 and 0xFF) - (wash and 0xFF) > 10)
+        assertEquals("as strong as Dark", look.copy(coloured = false).wash() ushr 24, wash ushr 24)
+        assertTrue("a pale accent on dark", luma(look.accent()!!) > 180)
+        assertEquals("Dark has no accent", null, look.copy(coloured = false).accent())
+        assertEquals("tiles keep the thin tint, so each shows its own colour", look.copy(coloured = false).tile(lit = false), look.tile(lit = false))
+    }
+
+    @Test fun theGlintWaitsThenRunsOnce() {
+        assertEquals("not while focus is still moving", null, glintAt(GLINT_WAIT - 1))
+        assertEquals(0f, glintAt(GLINT_WAIT)!!, 0f)
+        assertEquals(0.5f, glintAt(GLINT_WAIT + GLINT_MS / 2)!!, 0.01f)
+        assertEquals("then it is gone", null, glintAt(GLINT_WAIT + GLINT_MS + 1))
+    }
+
+    @Test fun aSurfaceFindsItsPlaceInTheBlur() {
+        // The blur is 16:9 (320x180), so on a 1920x1080 screen it scales by 6 both ways; a view at (300, 200) shifts it back.
+        val m = glassMapping(1920, 1080, 300, 200)
+        assertEquals(6f, m[0], 0.001f)
+        assertEquals(6f, m[1], 0.001f)
+        assertEquals(-300f, m[2], 0.001f)
+        assertEquals(-200f, m[3], 0.001f)
+    }
+
+    @Test fun aSixteenByNinePhotoFillsTheScreen() {
+        val r = glassCrop(1920, 1080)
+        assertTrue(r[0] <= 0.5f && r[1] <= 0.5f && r[2] >= GLASS_W - 0.5f && r[3] >= GLASS_H - 0.5f)
+    }
+
+    @Test fun aFourByThreePhotoIsScaledByTheWidthAndCentredAsTheWallpaperIs() {
+        val r = glassCrop(1600, 1200)
+        assertEquals(0f, r[0], 0.01f)
+        assertEquals(GLASS_W.toFloat(), r[2], 0.01f)
+        assertEquals(GLASS_H / 2f, (r[1] + r[3]) / 2, 0.01f) // centred, not pinned to the top
+        assertTrue(r[1] < 0f && r[3] > GLASS_H)
+    }
+
+    @Test fun aPhonePhotoAndAPanoramaAreCentredToo() {
+        for ((w, h) in listOf(1080 to 1920, 4000 to 1000)) {
+            val r = glassCrop(w, h)
+            assertEquals(GLASS_W / 2f, (r[0] + r[2]) / 2, 0.01f)
+            assertEquals(GLASS_H / 2f, (r[1] + r[3]) / 2, 0.01f)
+            assertTrue(r[0] <= 0.01f && r[1] <= 0.01f && r[2] >= GLASS_W - 0.01f && r[3] >= GLASS_H - 0.01f) // always covers
+        }
+    }
+
+    @Test fun clearGlassLetsMoreOfTheWallpaperThrough() {
+        val frosted = GlassStyle.FROSTED
+        val clear = GlassStyle.CLEAR
+        assertTrue("tiles let more through", clear.tintRest < frosted.tintRest)
+        assertTrue("a lit tile lets more through", clear.tintLit < frosted.tintLit)
+        assertTrue("less blur", clear.radius < frosted.radius)
+        assertTrue("a lens makes it look like glass", clear.lens > 1f && frosted.lens == 1f)
+        assertTrue("only frost has grain", frosted.grain && !clear.grain)
+    }
+
+    @Test fun onlyAPictureGetsALens() {
+        assertEquals(GlassStyle.CLEAR.lens, GlassLook(GlassStyle.CLEAR, dark = true, Backdrop.PICTURE).lens, 0f)
+        assertEquals(1f, GlassLook(GlassStyle.CLEAR, dark = true, Backdrop.VIDEO).lens, 0f)
+        assertEquals(1f, GlassLook(GlassStyle.CLEAR, dark = true, Backdrop.PLAIN).lens, 0f)
+    }
+
+    @Test fun clearRefractionKeepsCentreSharpAndBendsTheRimOutward() {
+        assertTrue("centre magnifies", clearLensScale(0f) > 1f)
+        assertTrue("rim samples outside the tile", clearLensScale(1f) < 1f)
+        var previous = clearLensScale(0f)
+        for (step in 1..4) {
+            val zoom = clearLensScale(step / 4f)
+            assertTrue("no reversed bands", zoom < previous)
+            assertTrue("bounded distortion", zoom in 0.8f..1.1f)
+            previous = zoom
+        }
+    }
+
+    @Test fun clearCacheBoundsMemoryAcrossRowsAndGrids() {
+        for (count in listOf(1, 8, 40, 100)) for ((width, height) in listOf(188 to 152, 600 to 900, 3840 to 2160)) {
+            val (w, h) = clearCacheSize(width, height, count)
+            assertTrue("positive dimensions", w > 0 && h > 0)
+            assertTrue("never larger than the tile", w <= width && h <= height)
+            assertTrue("visible tiles fit 2 MB", w.toLong() * h * count * 4 <= 2 * 1024 * 1024)
+        }
+    }
+
+    @Test fun clearCacheKeepsAnAppRowNearFullSize() {
+        val (w, h) = clearCacheSize(408, 321, 5)
+        assertTrue("sharp, not upscaled", w >= 360 && h >= 280)
+    }
+
+    @Test fun clearLensMeshBendsOnlyTheRimAndSmoothly() {
+        val (verts, texs) = clearLensMesh(160, 90, 500f, 300f, 200f, 150f, 0.5f, 0.5f)
+        val n = LENS_GRID + 1
+        val row = LENS_GRID / 2 * n
+        assertEquals(n * n * 2, verts.size)
+        assertEquals(160f, verts[(row + n - 1) * 2], 0.01f)
+        assertEquals("centre samples the tile centre", 250f, texs[(row + LENS_GRID / 2) * 2], 0.01f)
+        assertTrue("rim samples outside the tile", texs[row * 2] < (500f - 200f) * 0.5f)
+        for (i in 1..LENS_GRID) {
+            val ux = verts[(row + i) * 2] / 80f - 1f
+            val x = texs[(row + i) * 2] / 0.5f - 500f
+            assertTrue("monotonic", texs[(row + i) * 2] > texs[(row + i - 1) * 2])
+            // Away from the rim band the picture is evenly magnified, not bulged.
+            if (kotlin.math.abs(ux) < 0.8f) assertEquals(ux * 200f / clearLensScale(0f), x, 0.5f)
+        }
+        assertEquals(LENS_GRID * LENS_GRID * 6, LENS_INDICES.size)
+        assertTrue(LENS_INDICES.all { it in 0 until n * n })
+    }
+
+    @Test fun clearCacheRefreshWaitsForGeometryInsteadOfTheFocusGlint() {
+        assertEquals(80L, clearBakeDelay(1000L, 1000L))
+        assertEquals(1L, clearBakeDelay(1079L, 1000L))
+        assertEquals(0L, clearBakeDelay(1080L, 1000L))
+        assertEquals("no extra delay after settling", 0L, clearBakeDelay(1500L, 1000L))
+    }
+
+    @Test fun clearRefreshFadesWithoutAnOpacityFlash() {
+        for (alpha in listOf(1, 128, 255)) {
+            assertEquals(0, clearImageAlpha(0, alpha, true))
+            assertEquals(alpha, clearImageAlpha(CLEAR_FADE_MS, alpha, true))
+            assertEquals("animations off: immediate", alpha, clearImageAlpha(0, alpha, false))
+            var previous = 0
+            for (elapsed in 0L..CLEAR_FADE_MS step 10) {
+                val image = clearImageAlpha(elapsed, alpha, true)
+                assertTrue("smooth forward fade", image >= previous)
+                val base = clearBaseAlpha(alpha, image)
+                val combined = image + base * (1f - image / 255f)
+                assertEquals("no brighter or darker flash", alpha.toFloat(), combined, 1f)
+                previous = image
+            }
+        }
+    }
+
+    @Test fun theOldGlassSwitchStillMeansSomething() {
+        assertEquals(GlassStyle.FROSTED, GlassStyle.of(null, oldOn = true))
+        assertTrue(GlassStyle.of(null, oldOn = false) == null)
+        assertEquals(GlassStyle.CLEAR, GlassStyle.of("clear", oldOn = true))
+        assertTrue(GlassStyle.of("off", oldOn = true) == null)
+    }
+
+    @Test fun theWallpaperChoiceNamesItsBackdrop() {
+        assertEquals(Backdrop.PLAIN, Backdrop.of("plain:Pure black"))
+        assertEquals(Backdrop.VIDEO, Backdrop.of("video:apple_yosemite.mp4"))
+        assertEquals(Backdrop.PICTURE, Backdrop.of("res:Rockies (day)"))
+        assertEquals(Backdrop.PICTURE, Backdrop.of("folder:12:Photos"))
+    }
+
+    /** Every style, theme and backdrop: nothing over a plain colour, and Clear over a video is Frosted. */
+    @Test fun eachLookShowsOneStyle() {
+        for (style in listOf(null, GlassStyle.FROSTED, GlassStyle.CLEAR)) for (dark in listOf(false, true)) for (b in Backdrop.entries) {
+            val look = GlassLook(style, dark, b)
+            val expected = when {
+                style == null || b == Backdrop.PLAIN -> null
+                b == Backdrop.VIDEO -> GlassStyle.FROSTED
+                else -> style
+            }
+            assertEquals("$look active", expected, look.active)
+        }
+    }
+}

@@ -1,0 +1,63 @@
+name: Bug report
+description: Something in Plume doesn't work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please check [Troubleshooting](https://github.com/aradhyas8/Plume_Launcher#troubleshooting) first. Many Home button problems are solved there.
+  - type: input
+    id: device
+    attributes:
+      label: TV or streaming device
+      description: Brand and model, for example "Hisense 55A6K" or "Chromecast with Google TV (4K)".
+    validations:
+      required: true
+  - type: input
+    id: android
+    attributes:
+      label: Android version
+      description: Settings → System → About → Android TV OS version.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Plume version
+      description: Shown in Plume's settings, on the Updates row.
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install Plume?
+      options:
+        - Downloader app
+        - USB drive / file manager
+        - adb
+        - Updated from inside Plume
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you expected, and what you saw instead. Include the exact text of any message.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Plume settings
+        2. Select ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: media
+    attributes:
+      label: Photo or video
+      description: A photo of the screen or a short video helps a lot. Drag files here.
