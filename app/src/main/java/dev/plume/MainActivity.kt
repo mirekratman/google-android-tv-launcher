@@ -173,6 +173,14 @@ internal fun watchSortKey(type: Long, engaged: Long): Long {
 }
 
 /**
+ * Added to a row's sort key when it has real playback progress (a resume bar). Netflix and Disney+ stamp fresh
+ * recommendations as "continue" with a newer engagement time than a show you half-watched last week, which buried the
+ * real continue-watching at the end of the row; this lifts anything actually started ahead of every suggestion.
+ * Larger than the type boost plus any engagement time, so started rows always lead, newest first, suggestions after.
+ */
+internal const val STARTED_BOOST = 1L shl 52
+
+/**
  * Sort key of a card from an app's home-screen channel. Channels have no Watch Next type, so every card counts as
  * "continue". The card's own last-watched time when the app sets one (Nuvio does), else the time the app was last
  * opened from Plume.
@@ -5309,8 +5317,9 @@ class MainActivity : Activity() {
                 val wide = ShowsWall.wide(str("thumbnail_uri") != null, num("poster_art_aspect_ratio").toInt())
                 val prog = Prog(title, sub, progress, str("thumbnail_uri") ?: str("poster_art_uri"), str("intent_uri"), pkg, group ?: pkg, wide)
                 val engaged = num("last_engagement_time_utc_millis")
-                out += Triple(num("weight"),
-                    if (group == null) watchSortKey(num("watch_next_type"), engaged) else channelSortKey(engaged, prefs.getLong("t_$pkg", 0)), prog)
+                val base = if (group == null) watchSortKey(num("watch_next_type"), engaged) else channelSortKey(engaged, prefs.getLong("t_$pkg", 0))
+                // Started shows (a progress bar) come before recommendations, whatever the app's type/engagement says.
+                out += Triple(num("weight"), if (prog.progress > 0) base + STARTED_BOOST else base, prog)
             }
         }
         return byWeight(out)
