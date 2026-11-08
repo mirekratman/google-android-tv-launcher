@@ -39,6 +39,39 @@
 
 Plume replaces the cluttered stock home screen with the two things you actually use: your apps and what you were watching. No ads, no sponsored rows, no account and no tracking.
 
+## Changes in this fork
+
+This fork adds a few things on top of [upstream Plume](https://github.com/aradhyas8/Plume_Launcher), tuned on a Philips Google TV (Android 14). Every change below is on the `main` branch; the originals are untouched otherwise.
+
+<p align="center">
+  <img src="docs/fork-home.png" alt="Home screen: NordVPN and Bluetooth in the top bar, Continue Watching led by shows with real progress" width="100%">
+</p>
+
+<p align="center"><em>Top bar with NordVPN and Bluetooth · Continue Watching led by started shows</em></p>
+
+**Home screen**
+
+- **NordVPN in the top bar.** A new icon opens the NordVPN app. It shows only when NordVPN is installed.
+- **Bluetooth in the top bar.** A new icon opens the TV's **Remotes & accessories** screen — Bluetooth on/off, **Pair accessory** and the paired-device list — straight from the home screen (see below).
+- **A "New" section.** Below Continue Watching, two rows of eight new films and series from Netflix and Disney+ (16 at once). Press **Down** on a Continue Watching card to swap the row for **New**, and **Up** to go back; the apps row stays in place.
+- **Continue Watching scrolls sideways.** Left and right chevrons show there is more, and the row scrolls to reach it. Up to eight items per app, so one app can't fill the row.
+- **Started shows come first.** Continue Watching now leads with what you actually started (a progress bar), newest first, and fills the rest with suggestions. Netflix and Disney+ stamp fresh recommendations as "continue" with a newer time, which used to bury the real continue-watching at the end.
+- **A loading spinner.** A small, centred spinner (just the clock and the loader) shows while the home screen loads.
+
+**Reliability**
+
+- **Plume covers the stock launcher on cold boot.** When the Home service connects at boot, Plume steps in so the Google TV launcher never flashes up.
+- **Plume survives a full power cycle.** Android 13+ drops a sideloaded accessibility service from the enabled list on a cold boot; a boot receiver turns Plume's Home service back on, so Plume keeps taking over after every power-off.
+- **No more first-launch restart.** The glass blur now runs off the main thread. On a slower TV it used to block the UI thread long enough to trigger an ANR that restarted the launcher once or twice on the first launch.
+
+**Bluetooth → Remotes & accessories**
+
+Google TV's own device list is a settings *slice* its launcher renders in a privileged host a third-party app can't reuse, and on this Philips firmware `ACTION_BLUETOOTH_SETTINGS` doesn't resolve. The fork points the Bluetooth icon at the settings app's generic `SliceActivity` with the accessories slice, so it lands straight on this screen:
+
+<p align="center">
+  <img src="docs/fork-remotes-accessories.png" alt="Remotes and accessories: Bluetooth toggle, Pair accessory, and the paired-device list" width="60%">
+</p>
+
 ## Highlights
 
 - **Glass design.** Tiles, cards and settings in **Clear** or **Frosted** glass, or solid. The selected tile rises out of its row and its edge catches the light. Text and icons change colour to stay readable on any wallpaper.
