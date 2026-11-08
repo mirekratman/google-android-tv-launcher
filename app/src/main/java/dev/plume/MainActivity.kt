@@ -335,6 +335,22 @@ class MainActivity : Activity() {
     private lateinit var watchTitle: TextView
     private val appsTitle by lazy { findViewById<TextView>(R.id.appsTitle) }
     private lateinit var watchScroll: View
+    // Two "New" lines, paged below Continue Watching: recent additions from Netflix and Disney+.
+    private lateinit var cwGroup: View
+    private lateinit var cwArrows: LinearLayout
+    private lateinit var newGroup: View
+    private lateinit var newRow: LinearLayout
+    private lateinit var newTitle: TextView
+    private lateinit var newScroll: View
+    private lateinit var new2Row: LinearLayout
+    private lateinit var new2Scroll: View
+    private var lastNew: View? = null
+    private var lastNew2: View? = null
+    private var newList = emptyList<Prog>()
+    private var newList2 = emptyList<Prog>()
+    private val NEW_PKGS = setOf("com.netflix.ninja", "com.disney.disneyplus")
+    // Which bottom view is on screen: 0 = Continue Watching, 1 = New (both rows, 16 items).
+    private var bottomPage = 0
     private val appScroll by lazy { findViewById<View>(R.id.appScroll) }
     private var titleAlpha = 1f // the row title's own alpha from the layout, read before placeRow fades it
     private var rowOut = false // "Show row: On Down": the bottom row has focus, so it's slid in
@@ -388,6 +404,14 @@ class MainActivity : Activity() {
         watchTitle = findViewById(R.id.watchTitle)
         titleAlpha = watchTitle.alpha
         watchScroll = findViewById(R.id.watchScroll)
+        cwGroup = findViewById(R.id.cwGroup)
+        cwArrows = findViewById(R.id.cwArrows)
+        newGroup = findViewById(R.id.newGroup)
+        newRow = findViewById(R.id.newRow)
+        newTitle = findViewById(R.id.newTitle)
+        newScroll = findViewById(R.id.newScroll)
+        new2Row = findViewById(R.id.new2Row)
+        new2Scroll = findViewById(R.id.new2Scroll)
         allApps = findViewById(R.id.allApps)
         allAppsGrid = findViewById(R.id.allAppsGrid)
         wifi = findViewById(R.id.wifi)
@@ -407,6 +431,16 @@ class MainActivity : Activity() {
                 .putLong("wp_photo_light", photo).putLong("wp_photo_at_light", at)
                 .putBoolean("wp_shared", true).apply()
         }
+        // Bluetooth was added in an update: slot it next to Wi-Fi in a bar that was saved before it existed (once).
+        if (!prefs.getBoolean("bt_added", false)) {
+            prefs.getString("top_bar", null)?.let { saved ->
+                val keys = saved.split(',')
+                if ("bluetooth" !in keys) {
+                    prefs.edit().putString("top_bar", TopBar.addAfter(keys, "bluetooth", "wifi").joinToString(",")).apply()
+                }
+            }
+            prefs.edit().putBoolean("bt_added", true).apply()
+        }
         applyTopBar()
         applyTheme()
         glassShown = glassLook() to null // the tiles are built for this look; only the blur is still to come
@@ -423,6 +457,8 @@ class MainActivity : Activity() {
         // Top bar: network, All apps, Android settings, launcher settings. Round, lit on focus.
         for ((id, action) in listOf<Pair<Int, () -> Unit>>(
             R.id.wifi to { unlock { openSettings(Settings.ACTION_WIFI_SETTINGS) } },
+            R.id.bluetooth to { unlock { openAccessories() } },
+            R.id.nordvpn to { showNordVpn(findViewById(R.id.nordvpn)) },
             R.id.sourcesButton to { showSources(findViewById(R.id.sourcesButton)) },
             R.id.allAppsButton to { openAllApps() },
             R.id.systemSettings to { unlock { openSettings(Settings.ACTION_SETTINGS) } },
@@ -1052,10 +1088,22 @@ class MainActivity : Activity() {
         val watch = listOf(watchTitle) + cols.flatMap { col -> (0 until col.childCount).mapNotNull { col.getChildAt(it) as? TextView } }
         watchInk = inkBehind(watch)
         for (v in watch) ink(v, watchInk, fade = true)
+        for (i in 0 until cwArrows.childCount) (cwArrows.getChildAt(i) as? ImageView)?.setColorFilter(watchInk)
         // The progress bar and the source mark go with the card's text.
         for (col in cols) for (i in 0 until col.childCount) when (val v = col.getChildAt(i)) {
             is ProgressBar -> v.progressDrawable = progressBarDrawable(watchInk)
             is TextView -> if (v.tag == INK_MARK) v.compoundDrawablesRelative[0]?.setTint(watchInk)
+        }
+        // The "New" view (both rows, one title) gets its own readable ink; its provider marks follow the text.
+        run {
+            val newCols = (0 until newRow.childCount).map { newRow.getChildAt(it) as ViewGroup } +
+                (0 until new2Row.childCount).map { new2Row.getChildAt(it) as ViewGroup }
+            val newTexts = listOf(newTitle) + newCols.flatMap { col -> (0 until col.childCount).mapNotNull { col.getChildAt(it) as? TextView } }
+            val newInk = inkBehind(newTexts)
+            for (v in newTexts) ink(v, newInk, fade = true)
+            for (col in newCols) for (i in 0 until col.childCount) (col.getChildAt(i) as? TextView)?.let {
+                if (it.tag == INK_MARK) it.compoundDrawablesRelative[0]?.setTint(newInk)
+            }
         }
     }
 
@@ -3377,6 +3425,25 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Opens the TV's Remotes & Accessories screen (pair / connect / pick a device), falling back to Bluetooth or Settings. */
+    private fun openAccessories() {
+        val attempts: List<() -> Unit> = listOf(
+            { startActivity(Intent()
+                .setClassName("com.android.tv.settings", "com.android.tv.settings.accessories.AddAccessoryActivity")
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) },
+            { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) },
+            { startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) },
+        )
+        for (open in attempts) {
+            try {
+                open()
+                return
+            } catch (e: Exception) {
+                // try the next target
+            }
+        }
+    }
+
     // ---------- apps row ----------
 
     /** Labels and icons come from each app's resources, ~200 ms on this TV: done off the UI thread. */
@@ -3883,12 +3950,12 @@ class MainActivity : Activity() {
     private fun homeNav(v: View, key: Int): View? {
         fun alive(x: View?) = x?.takeIf { it.isAttachedToWindow }
         val apps = alive(lastApp)?.takeIf { it.parent === appRow } ?: appRow.getChildAt(0)
-        val cards = if (watchScroll.visibility != View.VISIBLE) null
-            else alive(lastCard) ?: (watchRow.getChildAt(0) as? ViewGroup)?.getChildAt(0)
         val top = alive(lastTop) ?: findViewById(R.id.launcherSettings)
+        fun newRowCard() = lastNew?.takeIf { it.isAttachedToWindow } ?: firstOf(newRow)
+        fun new2RowCard() = lastNew2?.takeIf { it.isAttachedToWindow } ?: firstOf(new2Row)
         return when {
             v.parent === wifi.parent -> when (key) { // top bar
-                KeyEvent.KEYCODE_DPAD_DOWN -> apps ?: cards ?: v // the apps row can be empty (all hidden)
+                KeyEvent.KEYCODE_DPAD_DOWN -> apps ?: goBottom(0) ?: v // the apps row can be empty (all hidden)
                 KeyEvent.KEYCODE_DPAD_UP -> v
                 KeyEvent.KEYCODE_DPAD_LEFT -> if (v.id == shownTop().first()) v else null
                 KeyEvent.KEYCODE_DPAD_RIGHT -> if (v.id == shownTop().last()) v else null
@@ -3896,7 +3963,7 @@ class MainActivity : Activity() {
             }
             v.parent === appRow -> when (key) {
                 KeyEvent.KEYCODE_DPAD_UP -> top
-                KeyEvent.KEYCODE_DPAD_DOWN -> cards ?: v
+                KeyEvent.KEYCODE_DPAD_DOWN -> goBottom(0) ?: v
                 KeyEvent.KEYCODE_DPAD_LEFT -> if (appRow.indexOfChild(v) == 0) v else null
                 KeyEvent.KEYCODE_DPAD_RIGHT -> if (appRow.indexOfChild(v) == appRow.childCount - 1) v else null
                 else -> null
@@ -3905,9 +3972,29 @@ class MainActivity : Activity() {
                 val i = watchRow.indexOfChild(v.parent as View)
                 when (key) {
                     KeyEvent.KEYCODE_DPAD_UP -> apps ?: top
-                    KeyEvent.KEYCODE_DPAD_DOWN -> v
+                    KeyEvent.KEYCODE_DPAD_DOWN -> goBottom(1) ?: v // scroll down: hide Continue Watching, show New
                     KeyEvent.KEYCODE_DPAD_LEFT -> if (i == 0) v else null
                     KeyEvent.KEYCODE_DPAD_RIGHT -> if (i == watchRow.childCount - 1) v else null
+                    else -> null
+                }
+            }
+            v.getTag(R.id.newRow) is Prog -> { // first New row
+                val i = newRow.indexOfChild(v.parent as View)
+                when (key) {
+                    KeyEvent.KEYCODE_DPAD_UP -> goBottom(0) ?: apps ?: top // back to Continue Watching
+                    KeyEvent.KEYCODE_DPAD_DOWN -> (if (new2Row.childCount > 0) new2RowCard() else null) ?: v
+                    KeyEvent.KEYCODE_DPAD_LEFT -> if (i == 0) v else null
+                    KeyEvent.KEYCODE_DPAD_RIGHT -> if (i == newRow.childCount - 1) v else null
+                    else -> null
+                }
+            }
+            v.getTag(R.id.new2Row) is Prog -> { // second New row
+                val i = new2Row.indexOfChild(v.parent as View)
+                when (key) {
+                    KeyEvent.KEYCODE_DPAD_UP -> (if (newRow.childCount > 0) newRowCard() else null) ?: goBottom(0) ?: apps ?: top
+                    KeyEvent.KEYCODE_DPAD_DOWN -> v
+                    KeyEvent.KEYCODE_DPAD_LEFT -> if (i == 0) v else null
+                    KeyEvent.KEYCODE_DPAD_RIGHT -> if (i == new2Row.childCount - 1) v else null
                     else -> null
                 }
             }
@@ -4039,8 +4126,9 @@ class MainActivity : Activity() {
     // ---------- the top bar: hold OK on an icon to move it, hide it, or add one back ----------
 
     /** The bar's icons in their default order, with the key each is saved under. */
-    private val TOP_KEYS = linkedMapOf(R.id.wifi to "wifi", R.id.sourcesButton to "sources", R.id.allAppsButton to "apps",
-        R.id.systemSettings to "system", R.id.launcherSettings to "plume", R.id.powerButton to "power")
+    private val TOP_KEYS = linkedMapOf(R.id.wifi to "wifi", R.id.bluetooth to "bluetooth", R.id.nordvpn to "nordvpn",
+        R.id.sourcesButton to "sources", R.id.allAppsButton to "apps", R.id.systemSettings to "system",
+        R.id.launcherSettings to "plume", R.id.powerButton to "power")
 
     private var movingTop: View? = null // the icon being moved, while Left and Right slide it
     private var topLive: List<Int> = emptyList() // the order while moving; saved when OK places the icon
@@ -4054,7 +4142,15 @@ class MainActivity : Activity() {
     }
 
     /** What is really on screen: Sources stays out while the TV has no input. */
-    private fun shownTop(order: List<Int> = topOrder()) = order.filter { it != R.id.sourcesButton || sources.isNotEmpty() }
+    private fun nordInstalled() = try {
+        packageManager.getLeanbackLaunchIntentForPackage(NORD_PKG) != null || packageManager.getLaunchIntentForPackage(NORD_PKG) != null
+    } catch (e: Exception) {
+        false
+    }
+
+    private fun shownTop(order: List<Int> = topOrder()) = order.filter {
+        (it != R.id.sourcesButton || sources.isNotEmpty()) && (it != R.id.nordvpn || nordInstalled())
+    }
 
     /** Puts the icons in [order], hides the others, and gives the first one on screen no left margin. */
     private fun applyTopBar(order: List<Int> = topOrder()) {
@@ -4093,6 +4189,26 @@ class MainActivity : Activity() {
         val service = HomeOverride.running
             ?: return holdMenu(findViewById(R.id.powerButton), listOf(getString(R.string.power_needs_home) to { turnOnHomeButton() }), below = true)
         Remap.powerMenu(service)
+    }
+
+    // ---------- NordVPN: the top-bar icon just launches the NordVPN app ----------
+
+    private val NORD_PKG = "com.nordvpn.android"
+
+    /** Tap NordVPN: open the NordVPN app (or its store page when it is not installed). */
+    private fun showNordVpn(anchor: View) {
+        val launch = packageManager.getLeanbackLaunchIntentForPackage(NORD_PKG)
+            ?: packageManager.getLaunchIntentForPackage(NORD_PKG)
+        try {
+            if (launch != null) {
+                startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            } else {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$NORD_PKG"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+        } catch (e: Exception) {
+            Toast.makeText(this, "Nie można otworzyć NordVPN", Toast.LENGTH_LONG).show()
+        }
     }
 
     /** Hold OK on a top-bar icon: Move, Hide (not Plume settings, so the bar is never empty) and Add icon. */
@@ -5013,6 +5129,7 @@ class MainActivity : Activity() {
             }
             ui.post { if (!isDestroyed) showWatchNext(list) }
         }
+        refreshNew()
     }
 
     /**
@@ -5207,6 +5324,7 @@ class MainActivity : Activity() {
         val focusedKey = (currentFocus?.getTag(R.id.watchRow) as? Prog)?.let { cardKey(it) } // the same show, whatever place it has now
         watchRow.removeAllViews()
         watchTitle.text = rowName()
+        cwArrows.visibility = if (list.isNotEmpty()) View.VISIBLE else View.GONE
         placeRow(animate = false)
         // ~16 ms per card here and only four show at once: the first four now, the next four on the next frame.
         addCardsTo(3)
@@ -5235,33 +5353,15 @@ class MainActivity : Activity() {
      * slide (translationY on a layer), so the move costs no layout or redraw, even on a slow TV.
      */
     private fun placeRow(animate: Boolean) {
-        val show = rowShow()
-        val has = watchList.isNotEmpty()
-        val keepSpace = show != "always" && !rowDrops() // "Stays put": the apps keep their place, even with no shows
-        // With no shows, an invisible stand-in card holds the row's height, so the apps don't fall to the bottom.
-        if (!has && keepSpace && watchRow.childCount == 0) watchRow.addView(watchCard(Prog(" ", " ", 0, null, null, null), false))
-        else if (!has && !keepSpace && watchRow.childCount > 0) watchRow.removeAllViews()
-        val vis = when {
-            !has -> if (keepSpace) View.INVISIBLE else View.GONE
-            show == "never" -> if (rowDrops()) View.GONE else View.INVISIBLE // invisible keeps its space
-            else -> View.VISIBLE
+        // The apps row stays put: the bottom slot is a fixed height, and the pager owns Continue Watching / New.
+        fun pin(v: View) {
+            if (v.translationY == 0f && v.alpha == 1f) return
+            if (animate) v.animate().translationY(0f).alpha(1f).setDuration(250).setInterpolator(DECELERATE).start()
+            else { v.animate().cancel(); v.translationY = 0f; v.alpha = 1f }
         }
-        if (watchScroll.visibility != vis) { watchTitle.visibility = vis; watchScroll.visibility = vis }
-        val hidden = show == "down" && has && !rowOut
-        // From where the app row sits above the bottom row to where it would sit without it.
-        val drop = (watchScroll.bottom - appScroll.bottom).toFloat().coerceAtLeast(0f)
-        val appY = if (hidden && rowDrops()) drop else 0f
-        val rowY = if (!hidden) 0f else if (rowDrops()) drop else dp(24).toFloat()
-        fun move(v: View, y: Float, a: Float) {
-            if (v.translationY == y && v.alpha == a) return // a layer for a view that doesn't move only costs frames
-            if (animate) v.animate().translationY(y).alpha(a).setDuration(250).setInterpolator(DECELERATE).start()
-            else { v.animate().cancel(); v.translationY = y; v.alpha = a }
-        }
-        move(appsTitle, appY, appsTitle.alpha)
-        move(appScroll, appY, 1f)
-        move(watchTitle, rowY, if (hidden) 0f else titleAlpha)
-        move(watchScroll, rowY, if (hidden) 0f else 1f)
-        // The rows are layers: they move and fade without a layout, so the frost has to be told to follow them.
+        pin(appScroll)
+        appsTitle.translationY = 0f
+        applyBottomPage(animate)
         glass.kick(if (animate) 320 else 0)
     }
 
@@ -5340,6 +5440,120 @@ class MainActivity : Activity() {
                 }
             })
         }
+        loadPoster(img, p.image)
+        return col
+    }
+
+    // ---------- Two "New" lines, paged below Continue Watching (Down/Up scroll between CW and New) ----------
+
+    private fun refreshNew() {
+        if (checkSelfPermission(TV_LISTINGS) != PackageManager.PERMISSION_GRANTED) return showNew(emptyList())
+        io.execute {
+            val list = try {
+                val hidden = prefs.getStringSet("hidden_watch", emptySet())!!
+                appChannels().filter { (_, p, _) -> p in NEW_PKGS }
+                    .flatMap { (id) -> readPrograms(TvContract.buildPreviewProgramsUriForChannel(id), hidden, "new$id") }
+                    .map { it.second }
+                    .distinctBy { it.title }
+                    .take(16)
+            } catch (e: Exception) {
+                emptyList()
+            }
+            ui.post { if (!isDestroyed) showNew(list) }
+        }
+    }
+
+    private fun showNew(list: List<Prog>) {
+        newList = list.take(8)
+        newList2 = list.drop(8).take(8)
+        newRow.removeAllViews()
+        newList.forEachIndexed { i, p -> newRow.addView(newCard(p, i > 0, R.id.newRow) { lastNew = it }) }
+        new2Row.removeAllViews()
+        newList2.forEachIndexed { i, p -> new2Row.addView(newCard(p, i > 0, R.id.new2Row) { lastNew2 = it }) }
+        if (bottomPage == 1 && !hasNew()) bottomPage = 0
+        applyBottomPage(animate = false)
+        newRow.post { fitInk() }
+    }
+
+    private fun hasNew() = newList.isNotEmpty() || newList2.isNotEmpty()
+
+    /** Shows the bottom view for [bottomPage] (0 = Continue Watching, 1 = all New), sliding the other away. */
+    private fun applyBottomPage(animate: Boolean) {
+        val onNew = bottomPage == 1 && hasNew()
+        slideGroup(newGroup, onNew, animate)
+        slideGroup(cwGroup, !onNew, animate)
+        glass.kick(if (animate) 300 else 0)
+    }
+
+    private fun slideGroup(group: View, show: Boolean, animate: Boolean) {
+        if (show) {
+            if (group.visibility != View.VISIBLE) {
+                group.visibility = View.VISIBLE
+                if (animate) {
+                    group.translationY = dp(30).toFloat(); group.alpha = 0f
+                    group.animate().translationY(0f).alpha(1f).setDuration(240).setInterpolator(DECELERATE).start()
+                } else { group.translationY = 0f; group.alpha = 1f }
+            }
+        } else if (group.visibility == View.VISIBLE) {
+            if (animate) group.animate().translationY(dp(-24).toFloat()).alpha(0f).setDuration(200).setInterpolator(DECELERATE)
+                .withEndAction { group.visibility = View.GONE; group.translationY = 0f; group.alpha = 1f }.start()
+            else { group.visibility = View.GONE; group.translationY = 0f; group.alpha = 1f }
+        }
+    }
+
+    /** Moves the bottom area to [page] (0 = Continue Watching, 1 = New) with a slide; returns the card to focus. */
+    private fun goBottom(page: Int): View? {
+        bottomPage = if (page == 1 && hasNew()) 1 else 0
+        applyBottomPage(animate = true)
+        return if (bottomPage == 1) firstNewCard() else cwCard()
+    }
+
+    private fun cwCard(): View? =
+        lastCard?.takeIf { it.isAttachedToWindow } ?: firstOf(watchRow)
+
+    private fun firstNewCard(): View? =
+        if (newRow.childCount > 0) lastNew?.takeIf { it.isAttachedToWindow } ?: firstOf(newRow)
+        else lastNew2?.takeIf { it.isAttachedToWindow } ?: firstOf(new2Row)
+
+    private fun firstOf(row: LinearLayout): View? = (row.getChildAt(0) as? ViewGroup)?.getChildAt(0)
+
+    /** A compact New card: poster, then the provider mark to the left of a small title. No progress, no time. */
+    private fun newCard(p: Prog, gapBefore: Boolean, tagId: Int, setLast: (View) -> Unit): View {
+        val gap = dp(10)
+        val w = (resources.displayMetrics.widthPixels - dp(96) - gap * 7) / 8
+        val col = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            clipChildren = false
+            layoutParams = LinearLayout.LayoutParams(w, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                if (gapBefore) marginStart = gap
+            }
+        }
+        val img = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            setBackgroundColor(if (dark) DARK_SURFACE else 0xFFDDE1E5.toInt())
+        }
+        val frame = FrameLayout(this)
+        style(frame, dp(6), card = true, lift = 1.12f, frost = false) { focused ->
+            if (focused) setLast(frame)
+        }
+        frame.contentDescription = p.title
+        frame.addView(img, MATCH_PARENT, MATCH_PARENT)
+        frame.setOnClickListener { open(p) }
+        frame.setTag(tagId, p)
+        col.addView(frame, LinearLayout.LayoutParams(w, w / 2))
+        val title = label(p.title, 11f).apply {
+            setPadding(0, dp(5), 0, 0)
+            isSingleLine = true
+            ellipsize = TextUtils.TruncateAt.END
+            ink(this, watchInk)
+            sourceIcon(p.pkg)?.let {
+                it.setBounds(0, 0, dp(12), dp(12))
+                setCompoundDrawablesRelative(it, null, null, null)
+                compoundDrawablePadding = dp(5)
+                if (LOGOS[p.pkg]?.second == false && (!cwColour() || BRAND_COLOURS[p.pkg] == null)) tag = INK_MARK
+            }
+        }
+        col.addView(title)
         loadPoster(img, p.image)
         return col
     }
@@ -5635,7 +5849,7 @@ class MainActivity : Activity() {
         const val PIN_TRIES = 5 // wrong PINs before a 30 s wait
         const val UNLOCKED_MS = 5 * 60_000L
         const val MEDIA_REQUEST = 3
-        const val PER_APP = 3 // Continue Watching items per app ahead of the rest
+        const val PER_APP = 8 // Continue Watching items per app ahead of the rest
         const val CARDS_AHEAD = 8 // Continue Watching cards built past the focused one (see addCardsTo)
         val READ_PHOTOS = if (Build.VERSION.SDK_INT >= 33) "android.permission.READ_MEDIA_IMAGES" else "android.permission.READ_EXTERNAL_STORAGE"
         /** Minutes between folder photos. */

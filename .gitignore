@@ -7,3 +7,20 @@ local.properties
 keystore.properties
 *.jks
 *.keystore
+
+# Local/private files: machine paths, device info, credentials
+*.log
+.DS_Store
+.env
+.env.*
+*.p12
+*.pem
+*.apk
+*.aab
+captures/
+.externalNativeBuild/
+.cxx/
+# Output of tools/plume-firetv-probe.sh and adb dumps (TV model, settings, logs)
+plume-probe-*/
+*.dumpsys
+bugreport*

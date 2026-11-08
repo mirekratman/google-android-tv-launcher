@@ -111,6 +111,26 @@
                 android:src="@drawable/ic_wifi" />
 
             <ImageView
+                android:id="@+id/bluetooth"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="8dp"
+                android:contentDescription="Bluetooth"
+                android:focusable="true"
+                android:padding="8dp"
+                android:src="@drawable/ic_bluetooth" />
+
+            <ImageView
+                android:id="@+id/nordvpn"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="8dp"
+                android:contentDescription="NordVPN"
+                android:focusable="true"
+                android:padding="8dp"
+                android:src="@drawable/ic_nordvpn" />
+
+            <ImageView
                 android:id="@+id/sourcesButton"
                 android:layout_width="36dp"
                 android:layout_height="36dp"
@@ -232,41 +252,153 @@
             </LinearLayout>
         </dev.plume.SnapScrollView>
 
-        <TextView
-            android:id="@+id/watchTitle"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:alpha="0.7"
-            android:fontFamily="sans-serif-medium"
-            android:text="@string/continue_watching"
-            android:textSize="14sp"
-            android:visibility="gone" />
-
-        <!-- 16dp between the title and the cards: room for the focused card's rise (~13dp). -->
-        <dev.plume.SnapScrollView
-            android:id="@+id/watchScroll"
+        <!-- Bottom slot: a fixed height so swapping Continue Watching for the New rows never moves the app row. -->
+        <FrameLayout
+            android:id="@+id/bottomSlot"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="-16dp"
-            android:layout_marginTop="-8dp"
-            android:layout_marginEnd="-16dp"
-            android:layout_marginBottom="-24dp"
-            android:clipToPadding="false"
-            android:paddingStart="16dp"
-            android:paddingTop="24dp"
-            android:paddingEnd="16dp"
-            android:paddingBottom="24dp"
-            android:scrollbars="none"
-            android:visibility="gone">
+            android:layout_height="196dp"
+            android:clipChildren="false"
+            android:clipToPadding="false">
 
             <LinearLayout
-                android:id="@+id/watchRow"
-                android:layout_width="wrap_content"
+                android:id="@+id/cwGroup"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:clipChildren="false"
-                android:orientation="horizontal" />
-        </dev.plume.SnapScrollView>
+                android:orientation="vertical">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/watchTitle"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:alpha="0.7"
+                        android:fontFamily="sans-serif-medium"
+                        android:text="@string/continue_watching"
+                        android:textSize="14sp" />
+
+                    <!-- Hint that the row scrolls left/right. -->
+                    <LinearLayout
+                        android:id="@+id/cwArrows"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:alpha="0.5"
+                        android:orientation="horizontal"
+                        android:visibility="gone">
+
+                        <ImageView
+                            android:id="@+id/cwArrowLeft"
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:contentDescription="@null"
+                            android:src="@drawable/ic_chevron_left" />
+
+                        <ImageView
+                            android:id="@+id/cwArrowRight"
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:layout_marginStart="2dp"
+                            android:contentDescription="@null"
+                            android:src="@drawable/ic_chevron_right" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <dev.plume.SnapScrollView
+                    android:id="@+id/watchScroll"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="-16dp"
+                    android:layout_marginTop="-8dp"
+                    android:layout_marginEnd="-16dp"
+                    android:layout_marginBottom="-24dp"
+                    android:clipToPadding="false"
+                    android:paddingStart="16dp"
+                    android:paddingTop="24dp"
+                    android:paddingEnd="16dp"
+                    android:paddingBottom="24dp"
+                    android:scrollbars="none">
+
+                    <LinearLayout
+                        android:id="@+id/watchRow"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:clipChildren="false"
+                        android:orientation="horizontal" />
+                </dev.plume.SnapScrollView>
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/newGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:clipChildren="false"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/newTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:alpha="0.7"
+                    android:fontFamily="sans-serif-medium"
+                    android:text="New"
+                    android:textSize="14sp" />
+
+                <dev.plume.SnapScrollView
+                    android:id="@+id/newScroll"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="-16dp"
+                    android:layout_marginTop="-2dp"
+                    android:layout_marginEnd="-16dp"
+                    android:layout_marginBottom="-16dp"
+                    android:clipToPadding="false"
+                    android:paddingStart="16dp"
+                    android:paddingTop="10dp"
+                    android:paddingEnd="16dp"
+                    android:paddingBottom="16dp"
+                    android:scrollbars="none">
+
+                    <LinearLayout
+                        android:id="@+id/newRow"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:clipChildren="false"
+                        android:orientation="horizontal" />
+                </dev.plume.SnapScrollView>
+
+                <dev.plume.SnapScrollView
+                    android:id="@+id/new2Scroll"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="-16dp"
+                    android:layout_marginTop="-2dp"
+                    android:layout_marginEnd="-16dp"
+                    android:layout_marginBottom="-16dp"
+                    android:clipToPadding="false"
+                    android:paddingStart="16dp"
+                    android:paddingTop="10dp"
+                    android:paddingEnd="16dp"
+                    android:paddingBottom="16dp"
+                    android:scrollbars="none">
+
+                    <LinearLayout
+                        android:id="@+id/new2Row"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:clipChildren="false"
+                        android:orientation="horizontal" />
+                </dev.plume.SnapScrollView>
+            </LinearLayout>
+        </FrameLayout>
     </LinearLayout>
 
     <!-- All apps: hidden until the Apps tile is pressed; Back closes it. -->
