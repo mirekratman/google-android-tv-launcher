@@ -3490,12 +3490,20 @@ class MainActivity : Activity() {
 
     /** Opens the TV's Remotes & Accessories screen (pair / connect / pick a device), falling back to Bluetooth or Settings. */
     private fun openAccessories() {
+        // Google TV's "Remotes & accessories" device list (Bluetooth on/off, Pair accessory, paired devices) is a
+        // settings slice. Its own launcher renders it in a privileged slice host we can't reuse, but the TV settings
+        // app has a generic SliceActivity that renders any settings slice full-screen: point it at the accessories
+        // slice to land straight on that screen. Fall back to the full settings root, then the pairing screen.
+        val accessoriesSlice = "content://com.android.tv.settings.accessories.sliceprovider/general"
         val attempts: List<() -> Unit> = listOf(
+            { startActivity(Intent("android.settings.SLICE_SETTINGS")
+                .setClassName("com.android.tv.settings", "com.android.tv.settings.slice.SliceActivity")
+                .putExtra("slice_uri", accessoriesSlice)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) },
+            { startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) },
             { startActivity(Intent()
                 .setClassName("com.android.tv.settings", "com.android.tv.settings.accessories.AddAccessoryActivity")
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) },
-            { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) },
-            { startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) },
         )
         for (open in attempts) {
             try {
