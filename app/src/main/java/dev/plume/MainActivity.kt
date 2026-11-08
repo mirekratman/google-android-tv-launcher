@@ -1297,6 +1297,9 @@ class MainActivity : Activity() {
     /** The look and the pixels that glass was last drawn for. */
     private var glassShown: Pair<GlassLook, IntArray?>? = null
 
+    /** Bumped on every [applyGlass]; an off-thread blur applies only if it still matches (no newer look landed). */
+    private var glassBlurGen = 0
+
     /**
      * Brings everything glass paints in line with [glassLook] and [glassPixels]. Call it whenever the style, the theme
      * or the shown wallpaper changes; it does nothing when neither did.
@@ -1316,12 +1319,32 @@ class MainActivity : Activity() {
         glassShown = look to px
         val shown = px?.takeIf { look.active != null }
         glass.setSharp(sharpPixels?.takeIf { look.active == GlassStyle.CLEAR }, io)
-        glass.setBlur(shown?.let { glassBlur(it, look.active!!.radius, look.dark) })
         val frost = if (look.active == GlassStyle.CLEAR) 4 else GlassStyle.FROSTED.radius
-        surfaceBlur = if (look.active?.radius == frost) glass.blur
-            else shown?.let { Bitmap.createBitmap(glassBlur(it, frost, look.dark), GLASS_W, GLASS_H, Bitmap.Config.ARGB_8888) }
-        glassSurfaces.forEach { it.get()?.setBlur(surfaceBlur) } // menus and cards that are open, and the panel
-        frostedCard?.get()?.setBlur(frostedBlur())
+        val gen = ++glassBlurGen
+        if (shown == null) {
+            glass.setBlur(null)
+            surfaceBlur = null
+            glassSurfaces.forEach { it.get()?.setBlur(null) }
+            frostedCard?.get()?.setBlur(frostedBlur())
+        } else {
+            // The box blur burns ~5 s of CPU on this TV while the process is still interpreted (first load),
+            // long enough to ANR and get the launcher killed and restarted. Compute it off the main thread and
+            // apply when ready; until then glass shows its tint unblurred for a frame or two.
+            val radius = look.active!!.radius
+            val d = look.dark
+            io.execute {
+                val main = glassBlur(shown, radius, d)
+                val surf = if (radius == frost) null else glassBlur(shown, frost, d)
+                ui.post {
+                    if (gen != glassBlurGen || isDestroyed) return@post
+                    glass.setBlur(main)
+                    surfaceBlur = if (surf == null) glass.blur
+                        else Bitmap.createBitmap(surf, GLASS_W, GLASS_H, Bitmap.Config.ARGB_8888)
+                    glassSurfaces.forEach { it.get()?.setBlur(surfaceBlur) } // menus and cards open, and the panel
+                    frostedCard?.get()?.setBlur(frostedBlur())
+                }
+            }
+        }
         if (was?.first != look) { // the card tints and which tiles get frost follow the look
             applyTheme()
             baked.clear()
