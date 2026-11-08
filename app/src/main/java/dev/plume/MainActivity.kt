@@ -444,6 +444,7 @@ class MainActivity : Activity() {
         applyTopBar()
         applyTheme()
         glassShown = glassLook() to null // the tiles are built for this look; only the blur is still to come
+        beginLoading()
         loadWallpaper()
         // "Show row: On Down": the row slides in while one of its cards has focus, however focus got there.
         window.decorView.viewTreeObserver.addOnGlobalFocusChangeListener { _, now ->
@@ -1371,6 +1372,34 @@ class MainActivity : Activity() {
         else -> choice.substringAfter(':').substringBeforeLast('.').let { n -> WALLPAPER_NAMES[n]?.let { getString(it) } ?: n }
     }
 
+    private var launcherLoading = true
+
+    /** While the launcher loads, show just the clock and a centred spinner; nothing else (no other text). */
+    private fun beginLoading() {
+        launcherLoading = true
+        findViewById<ProgressBar>(R.id.loader).apply {
+            visibility = View.VISIBLE
+            alpha = 1f
+            indeterminateTintList = ColorStateList.valueOf(fg)
+        }
+        for (v in loadingHidden()) v.alpha = 0f
+        ui.postDelayed({ finishLoading() }, 6000) // safety: never sit on the loader forever
+    }
+
+    private fun finishLoading() {
+        if (!launcherLoading) return
+        launcherLoading = false
+        val loader = findViewById<View>(R.id.loader)
+        loader.animate().alpha(0f).setDuration(250).withEndAction { loader.visibility = View.GONE }.start()
+        for (v in loadingHidden()) v.animate().alpha(1f).setDuration(300).start()
+    }
+
+    /** Everything faded out during loading; only the clock and the loader stay on screen. */
+    private fun loadingHidden(): List<View> = listOfNotNull(
+        findViewById(R.id.date), findViewById(R.id.weather), findViewById(R.id.featured),
+        findViewById(R.id.appScroll), findViewById(R.id.bottomSlot)
+    ) + TOP_KEYS.keys.mapNotNull { findViewById<View>(it) } // top-bar icons, but not the clock beside them
+
     private fun loadWallpaper() {
         val view = findViewById<ImageView>(R.id.wallpaper)
         val choice = currentWallpaper()
@@ -1385,6 +1414,7 @@ class MainActivity : Activity() {
             wpThumb = null
             wpFrames = emptyList()
             fitInk()
+            finishLoading()
             return
         }
         val fallback = defaultWallpaper(dark)
@@ -1443,8 +1473,10 @@ class MainActivity : Activity() {
                     applyGlass()
                     view.setImageBitmap(shown)
                     if (video) videoWallpaper.show(File(wallpaperDir(), choice.removePrefix("video:")), resumed)
+                    finishLoading()
                     return@post
                 }
+                finishLoading()
                 // Soft change from one photo to the next; then drop the old one so only one stays in memory.
                 val fade = TransitionDrawable(arrayOf(old, BitmapDrawable(resources, shown))).apply { isCrossFadeEnabled = true }
                 view.setImageDrawable(fade)
@@ -5359,7 +5391,7 @@ class MainActivity : Activity() {
             if (animate) v.animate().translationY(0f).alpha(1f).setDuration(250).setInterpolator(DECELERATE).start()
             else { v.animate().cancel(); v.translationY = 0f; v.alpha = 1f }
         }
-        pin(appScroll)
+        if (!launcherLoading) pin(appScroll) else appScroll.translationY = 0f // don't reveal the row while the loader is up
         appsTitle.translationY = 0f
         applyBottomPage(animate)
         glass.kick(if (animate) 320 else 0)

@@ -507,4 +507,13 @@
                 android:textSize="14sp" />
         </dev.plume.GlassBox>
     </FrameLayout>
+
+    <!-- Simple centered loader shown while the launcher loads; only the clock stays visible behind it. -->
+    <ProgressBar
+        android:id="@+id/loader"
+        style="?android:attr/progressBarStyleLarge"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:indeterminate="true" />
 </FrameLayout>
