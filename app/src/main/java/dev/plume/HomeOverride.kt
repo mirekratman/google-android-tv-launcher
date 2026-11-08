@@ -32,6 +32,10 @@ class HomeOverride : AccessibilityService() {
                 addDataScheme("package")
             })
         }
+        // Cold boot: Google TV's launcher is already on screen before this service connects, so no
+        // window event ever fires for it and the watcher below never covers it. For a short window
+        // after boot, step in once and show Plume. (Elapsed time since boot, so deep sleep doesn't skip it.)
+        if (SystemClock.elapsedRealtime() < 180_000L) handler.postDelayed(bootJump, 2000L)
     }
 
     /**
@@ -51,6 +55,7 @@ class HomeOverride : AccessibilityService() {
     override fun onUnbind(intent: Intent?): Boolean {
         running = null
         handler.removeCallbacks(jump)
+        handler.removeCallbacks(bootJump)
         if (listening) {
             listening = false
             unregisterReceiver(packageReceiver)
@@ -100,6 +105,8 @@ class HomeOverride : AccessibilityService() {
         override fun onReceive(c: Context, i: Intent) = loadHomes()
     }
     private val jump = Runnable { watch.jumped(); goHome() }
+    // One-shot cover of the launcher that is already up at boot (see onServiceConnected).
+    private val bootJump = Runnable { goHome() }
 
     override fun onAccessibilityEvent(e: AccessibilityEvent) {
         if (e.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
