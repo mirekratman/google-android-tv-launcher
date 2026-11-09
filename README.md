@@ -62,6 +62,7 @@ This fork adds a few things on top of [upstream Plume](https://github.com/aradhy
 
 - **Plume covers the stock launcher on cold boot.** When the Home service connects at boot, Plume steps in so the Google TV launcher never flashes up.
 - **Plume survives a full power cycle.** Android 13+ drops a sideloaded accessibility service from the enabled list on a cold boot; a boot receiver turns Plume's Home service back on, so Plume keeps taking over after every power-off.
+- **Plume comes back after a wake from standby.** Turning the TV off with the remote only suspends it, so hours later the set wakes with Google TV's launcher already on screen and no window event for the watcher to catch. The Home service now re-asserts Plume on every connect and on each screen-on, so the stock launcher no longer slips through on a late wake — without yanking a real app you left running through a short screen-off.
 - **No more first-launch restart.** The glass blur now runs off the main thread. On a slower TV it used to block the UI thread long enough to trigger an ANR that restarted the launcher once or twice on the first launch.
 
 **Bluetooth → Remotes & accessories**
