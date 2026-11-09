@@ -31,11 +31,20 @@ class HomeOverride : AccessibilityService() {
                 addAction(Intent.ACTION_PACKAGE_CHANGED)
                 addDataScheme("package")
             })
+            // A wake from standby brings the system's own launcher back in front but fires no window event
+            // for it (the window was never closed), so the watcher below never sees it. SCREEN_ON/USER_PRESENT
+            // let us re-check on every wake while the service stays bound.
+            registerReceiver(wakeReceiver, IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_ON)
+                addAction(Intent.ACTION_USER_PRESENT)
+            })
         }
-        // Cold boot: Google TV's launcher is already on screen before this service connects, so no
-        // window event ever fires for it and the watcher below never covers it. For a short window
-        // after boot, step in once and show Plume. (Elapsed time since boot, so deep sleep doesn't skip it.)
-        if (SystemClock.elapsedRealtime() < 180_000L) handler.postDelayed(bootJump, 2000L)
+        // The service connects at boot and again whenever Android rebinds it after killing the process during
+        // a long standby. In both cases Google TV's launcher may already be on screen with no window event
+        // left to catch, so cover it here if it is the window in front. (No longer gated to the first minutes
+        // after boot: turning the TV off with the remote only suspends it, so a wake hours later rebinds the
+        // service long past any boot window — that was why Google TV kept reappearing.)
+        scheduleCover()
     }
 
     /**
@@ -55,10 +64,11 @@ class HomeOverride : AccessibilityService() {
     override fun onUnbind(intent: Intent?): Boolean {
         running = null
         handler.removeCallbacks(jump)
-        handler.removeCallbacks(bootJump)
+        handler.removeCallbacks(connectCover)
         if (listening) {
             listening = false
             unregisterReceiver(packageReceiver)
+            unregisterReceiver(wakeReceiver)
         }
         getSharedPreferences("home", MODE_PRIVATE).edit().putBoolean("home_off", true).apply()
         return super.onUnbind(intent)
@@ -105,12 +115,39 @@ class HomeOverride : AccessibilityService() {
         override fun onReceive(c: Context, i: Intent) = loadHomes()
     }
     private val jump = Runnable { watch.jumped(); goHome() }
-    // One-shot cover of the launcher that is already up at boot (see onServiceConnected).
-    private val bootJump = Runnable { goHome() }
+
+    // The package of the most recent window to come to the front, taken from TYPE_WINDOW_STATE_CHANGED events
+    // (the package name is there even though this service runs without content retrieval). Used to decide
+    // whether a boot or a wake should assert Plume.
+    @Volatile private var lastWindowPkg: String? = null
+    private val connectCover = Runnable { coverOnWake() }
+    private val wakeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(c: Context, i: Intent) = scheduleCover()
+    }
+
+    private fun scheduleCover() {
+        handler.removeCallbacks(connectCover)
+        handler.postDelayed(connectCover, 1200L)
+    }
+
+    /**
+     * On a boot or a wake from standby the system can bring its own launcher back in front with no window
+     * event for the watcher above to catch. The service runs without content retrieval, so we can't read the
+     * active window; instead we go by the last window we did see. Assert Plume when nothing was seen yet (a
+     * fresh boot or a just-rebound process), when Plume itself was last (cover whatever the system raised over
+     * it), or when the Google launcher was last. Leave a real app alone, so a short screen-off that wakes back
+     * into Netflix is never yanked to Plume.
+     */
+    private fun coverOnWake() {
+        val p = lastWindowPkg
+        if (p == null || p == packageName || p == HomeWatch.GOOGLE_TV) goHome()
+    }
 
     override fun onAccessibilityEvent(e: AccessibilityEvent) {
         if (e.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         val pkg = e.packageName?.toString() ?: return
+        // System overlays aren't "the foreground app", so they don't count as what's in front (see coverOnWake).
+        if (pkg != "com.android.systemui" && pkg != "android") lastWindowPkg = pkg
         val after = watch.opened(pkg, e.className?.toString(), SystemClock.uptimeMillis())
         if (after == HomeWatch.KEEP) return // the waiting jump stays
         handler.removeCallbacks(jump) // any other window opening means Home wasn't where we were going
